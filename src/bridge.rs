@@ -170,8 +170,7 @@ impl Bridge {
             devicetype: devicetype.to_string(),
         };
         let url = format!("http://{}/api", self.ip);
-        let bytes = serde_json::to_vec(&obtain)?;
-        let resp = self.client.post(&url).send_bytes(bytes.as_slice());
+        let resp = self.client.post(&url).send_json(serde_json::to_value(obtain)?);
         if resp.synthetic() {
             return Err(HueError::Ureq(resp.into_synthetic_error().unwrap()));
         }
@@ -212,8 +211,7 @@ impl Bridge {
             self.username.as_ref().ok_or(HueError::NoUsername)?,
             light
         );
-        let body = ::serde_json::to_vec(command)?;
-        let resp = self.client.put(&url).build().send_bytes(body.as_slice());
+        let resp = self.client.put(&url).build().send_json(serde_json::to_value(command)?);
         if resp.synthetic() {
             return Err(HueError::Ureq(resp.into_synthetic_error().unwrap()));
         }
