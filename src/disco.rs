@@ -1,5 +1,4 @@
 use crate::{HueError, HueError::DiscoveryError};
-use reqwest;
 use serde_json::{Map, Value};
 use std::net::IpAddr;
 
@@ -13,8 +12,11 @@ pub fn discover_hue_bridge() -> Result<IpAddr, HueError> {
 }
 
 pub fn discover_hue_bridge_n_upnp() -> Result<IpAddr, HueError> {
-    let objects: Vec<Map<String, Value>> =
-        reqwest::blocking::get("https://discovery.meethue.com/")?.json()?;
+    let resp = ureq::get("https://discovery.meethue.com/").call();
+    if resp.synthetic_error().is_some() {
+        return Err(HueError::Ureq(resp.into_synthetic_error().unwrap()));
+    }
+    let objects: Vec<Map<String, Value>> = resp.into_json_deserialize()?;
 
     if objects.len() == 0 {
         Err(DiscoveryError {

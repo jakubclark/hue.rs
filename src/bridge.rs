@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 
-use reqwest;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -122,7 +121,7 @@ impl CommandLight {
 pub struct Bridge {
     pub ip: std::net::IpAddr,
     pub username: Option<String>,
-    client: reqwest::blocking::Client,
+    client: ureq::Agent,
 }
 
 impl Bridge {
@@ -130,7 +129,7 @@ impl Bridge {
         Bridge {
             ip,
             username: None,
-            client: reqwest::blocking::Client::new(),
+            client: ureq::agent(),
         }
     }
 
@@ -139,7 +138,7 @@ impl Bridge {
         disco::discover_hue_bridge().ok().map(|ip| Bridge {
             ip,
             username: None,
-            client: reqwest::blocking::Client::new(),
+            client: ureq::agent(),
         })
     }
 
@@ -171,8 +170,12 @@ impl Bridge {
             devicetype: devicetype.to_string(),
         };
         let url = format!("http://{}/api", self.ip);
-        let success: Success =
-            self.parse(self.client.post(&url[..]).json(&obtain).send()?.json()?)?;
+        let bytes = serde_json::to_vec(&obtain)?;
+        let resp = self.client.post(&url).send_bytes(bytes.as_slice());
+        if resp.synthetic() {
+            return Err(HueError::Ureq(resp.into_synthetic_error().unwrap()));
+        }
+        let success: Success = resp.into_json_deserialize()?;
 
         self.username = Some(success.success.username.clone());
 
@@ -185,7 +188,12 @@ impl Bridge {
             self.ip,
             self.username.as_ref().ok_or(HueError::NoUsername)?
         );
-        let resp: HashMap<String, Light> = self.parse(self.client.get(&url[..]).send()?.json()?)?;
+        let resp = self.client.get(&url).call();
+        if resp.synthetic() {
+            return Err(HueError::Ureq(resp.into_synthetic_error().unwrap()));
+        }
+        let resp: HashMap<String, Light> = self.parse(resp.into_json()?)?;
+
         let mut lights = vec![];
         for (k, v) in resp {
             let id: usize = usize::from_str(&k).or(Err(HueError::ProtocolError {
@@ -205,13 +213,11 @@ impl Bridge {
             light
         );
         let body = ::serde_json::to_vec(command)?;
-        let resp = self
-            .client
-            .put(&url[..])
-            .body(::reqwest::blocking::Body::from(body))
-            .send()?
-            .json()?;
-        self.parse(resp)
+        let resp = self.client.put(&url).build().send_bytes(body.as_slice());
+        if resp.synthetic() {
+            return Err(HueError::Ureq(resp.into_synthetic_error().unwrap()));
+        }
+        self.parse(resp.into_json()?)
     }
 
     fn parse<T: ::serde::de::DeserializeOwned>(&self, value: Value) -> Result<T, HueError> {
